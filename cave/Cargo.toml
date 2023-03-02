@@ -1,0 +1,9 @@
+[package]
+name = "cave"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+cave-core = { path = "../cave-core" }
+memmap = "0.7.0"
+test-arch = { path = "../test-arch" }

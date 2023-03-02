@@ -1,123 +1,60 @@
 use std::num::Wrapping;
 
-use cave_core::ee::interp::{Interpreter, StepError, StepMode, StepResult};
-use cave_core::isa::{self, Disassembler};
+use cave_core::ee::interp::{ExecutionResult, InstructionExecutor};
+use cave_core::ee::CpuState;
 
-use crate::{
-    decode::{TestArchDecoder, TestArchInstruction},
-    disasm::TestArchDisassembler,
-    CpuState,
-};
-use cave_core::isa::Decoder;
+use crate::decode::{TestArchDecoder, TestArchInstruction};
+use crate::disasm::TestArchDisassembler;
+use crate::RegisterState;
 
-pub struct TestArchInterpreter<'a> {
-    cpu_state: &'a mut CpuState,
-    decoder: TestArchDecoder,
-    disassembler: TestArchDisassembler,
-}
+pub struct TestArchInstructionExecutor {}
 
-impl<'a> TestArchInterpreter<'a> {
-    pub fn new(cpu_state: &'a mut CpuState) -> TestArchInterpreter<'a> {
-        TestArchInterpreter {
-            cpu_state,
-            decoder: TestArchDecoder::default(),
-            disassembler: TestArchDisassembler::default(),
-        }
-    }
+impl InstructionExecutor<RegisterState> for TestArchInstructionExecutor {
+    fn execute(state: &mut CpuState<RegisterState>) -> ExecutionResult {
+        let (insn, len) = TestArchDecoder::decode(unsafe {
+            std::slice::from_raw_parts(state.mem.offset(state.pc as isize), 16)
+        })
+        .unwrap();
 
-    fn execute(
-        &mut self,
-        (insn, len): (TestArchInstruction, usize),
-    ) -> Result<StepResult, StepError> {
-        //println!("{}", self.disassembler.disasm(&insn).unwrap());
+        println!("{}", TestArchDisassembler::disasm(&insn).unwrap());
 
         match insn {
             TestArchInstruction::MovImm(dst, val) => {
-                self.cpu_state.regs[dst as usize] = val as u64;
-                self.cpu_state.pc += len as u64;
-                Ok(StepResult::Ok(1))
+                state.regstate.regs[dst as usize] = val as u64;
+                state.pc += len;
+                ExecutionResult::Continue
             }
             TestArchInstruction::MovReg(dst, src) => {
-                self.cpu_state.regs[dst as usize] = self.cpu_state.regs[src as usize];
-                self.cpu_state.pc += len as u64;
-                Ok(StepResult::Ok(1))
+                state.regstate.regs[dst as usize] = state.regstate.regs[src as usize];
+                state.pc += len;
+                ExecutionResult::Continue
             }
             TestArchInstruction::AddReg(dst, src1, src2) => {
-                self.cpu_state.regs[dst as usize] = (Wrapping(self.cpu_state.regs[src1 as usize])
-                    + Wrapping(self.cpu_state.regs[src2 as usize]))
+                state.regstate.regs[dst as usize] = (Wrapping(state.regstate.regs[src1 as usize])
+                    + Wrapping(state.regstate.regs[src2 as usize]))
                 .0;
-                self.cpu_state.zf = self.cpu_state.regs[dst as usize] == 0;
-                self.cpu_state.pc += len as u64;
-                Ok(StepResult::Ok(1))
+                state.regstate.zf = state.regstate.regs[dst as usize] == 0;
+                state.pc += len;
+                ExecutionResult::Continue
             }
             TestArchInstruction::SubImm(dst, src1, src2) => {
-                self.cpu_state.regs[dst as usize] =
-                    (Wrapping(self.cpu_state.regs[src1 as usize]) - Wrapping(src2 as u64)).0;
+                state.regstate.regs[dst as usize] =
+                    (Wrapping(state.regstate.regs[src1 as usize]) - Wrapping(src2 as u64)).0;
 
-                self.cpu_state.zf = self.cpu_state.regs[dst as usize] == 0;
-                self.cpu_state.pc += len as u64;
-                Ok(StepResult::Ok(1))
+                state.regstate.zf = state.regstate.regs[dst as usize] == 0;
+                state.pc += len;
+                ExecutionResult::Continue
             }
             TestArchInstruction::Jnz(offset) => {
-                if !self.cpu_state.zf {
-                    self.cpu_state.pc = (self.cpu_state.pc as i64 + offset as i64) as u64;
+                if !state.regstate.zf {
+                    state.pc = (state.pc as i64 + offset as i64) as usize;
                 } else {
-                    self.cpu_state.pc += len as u64;
+                    state.pc += len;
                 }
-                Ok(StepResult::Ok(1))
+                ExecutionResult::Continue
             }
-            TestArchInstruction::Hlt => Ok(StepResult::Exited(1)),
-            _ => Err(StepError::DecodeError),
-        }
-    }
-}
-
-impl<'a> Interpreter for TestArchInterpreter<'a> {
-    fn step(&mut self, mode: StepMode) -> Result<StepResult, StepError> {
-        let mut icount = 0;
-
-        match mode {
-            StepMode::MaxInstructions(c) => {
-                while icount < c {
-                    let data = unsafe {
-                        std::slice::from_raw_parts(
-                            self.cpu_state.mem.offset(self.cpu_state.pc as isize),
-                            16,
-                        )
-                    };
-                    let i = self.decoder.decode(data).unwrap();
-
-                    match self.execute(i)? {
-                        StepResult::Ok(n) => {
-                            icount += n;
-                        }
-                        StepResult::Exited(n) => {
-                            return Ok(StepResult::Exited(icount + n));
-                        }
-                    };
-                }
-
-                Ok(StepResult::Ok(icount))
-            }
-            StepMode::Forever => loop {
-                let data = unsafe {
-                    std::slice::from_raw_parts(
-                        self.cpu_state.mem.offset(self.cpu_state.pc as isize),
-                        16,
-                    )
-                };
-                let i = self.decoder.decode(data).unwrap();
-
-                match self.execute(i)? {
-                    StepResult::Ok(n) => {
-                        icount += n;
-                    }
-                    StepResult::Exited(n) => {
-                        return Ok(StepResult::Exited(icount + n));
-                    }
-                };
-            },
-            _ => Err(StepError::DecodeError),
+            TestArchInstruction::Hlt => ExecutionResult::Exit,
+            _ => ExecutionResult::Abort,
         }
     }
 }

@@ -1,5 +1,8 @@
+use super::CpuState;
+use std::marker::PhantomData;
+
 #[derive(Debug)]
-pub enum StepMode {
+pub enum RunMode {
     Forever,
     EndOfBlock,
     MaxBlocks(usize),
@@ -7,17 +10,54 @@ pub enum StepMode {
 }
 
 #[derive(Debug)]
-pub enum StepResult {
-    Ok(usize),
-    Exited(usize),
+pub enum RunResult {
+    Ok,
+    Exited,
 }
 
 #[derive(Debug)]
-pub enum StepError {
-    DecodeError,
-    Exception,
+pub enum RunError {
+    GenericError,
+    UndefinedInstruction,
 }
 
-pub trait Interpreter {
-    fn step(&mut self, mode: StepMode) -> Result<StepResult, StepError>;
+pub enum ExecutionResult {
+    Continue,
+    Exit,
+    Abort,
+}
+
+pub trait InstructionExecutor<R> {
+    fn execute(state: &mut CpuState<R>) -> ExecutionResult;
+}
+
+pub struct Interpreter<R, E: InstructionExecutor<R>> {
+    regstate_type: PhantomData<R>,
+    executor_type: PhantomData<E>,
+}
+
+impl<R, E: InstructionExecutor<R>> Interpreter<R, E> {
+    pub fn new() -> Self {
+        Self {
+            regstate_type: PhantomData,
+            executor_type: PhantomData,
+        }
+    }
+
+    pub fn run(mode: RunMode, state: &mut CpuState<R>) -> Result<(RunResult, usize), RunError> {
+        match mode {
+            RunMode::Forever => loop {
+                match E::execute(state) {
+                    ExecutionResult::Continue => {}
+                    ExecutionResult::Exit => {
+                        return Ok((RunResult::Exited, 0));
+                    }
+                    _ => {
+                        return Err(RunError::GenericError);
+                    }
+                }
+            },
+            _ => Err(RunError::GenericError),
+        }
+    }
 }

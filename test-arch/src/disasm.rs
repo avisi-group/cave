@@ -5,8 +5,8 @@ use crate::decode::TestArchInstruction;
 #[derive(Default)]
 pub struct TestArchDisassembler {}
 
-impl Disassembler<TestArchInstruction> for TestArchDisassembler {
-    fn disasm(&self, insn: &TestArchInstruction) -> Result<String, cave_core::isa::DisasmError> {
+impl TestArchDisassembler {
+    pub fn disasm(insn: &TestArchInstruction) -> Result<String, cave_core::isa::DisasmError> {
         match insn {
             TestArchInstruction::Nop => Ok(String::from("nop")),
             TestArchInstruction::Hlt => Ok(String::from("hlt")),

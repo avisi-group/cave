@@ -3,14 +3,11 @@ use std::{
     io::{Read, Result},
 };
 
-use cave_core::ee::interp::Interpreter;
-use cave_core::isa::Isa;
+use cave_core::ee::{interp::Interpreter, interp::RunMode, CpuState};
 use memmap::MmapOptions;
-use test_arch::{interp::TestArchInterpreter, CpuState, TestIsa};
+use test_arch::{interp::TestArchInstructionExecutor, RegisterState};
 
 fn main() -> Result<()> {
-    let isa = TestIsa::new();
-
     let mut mem = MmapOptions::new().len(0x1000).map_anon().unwrap();
 
     let mut file = File::open("./fib.ta")?;
@@ -21,12 +18,9 @@ fn main() -> Result<()> {
         std::ptr::copy(buf.as_ptr(), mem.as_mut_ptr(), s);
     }
 
-    let mut state = CpuState::new(mem.as_mut_ptr());
-    let mut interp = TestArchInterpreter::new(&mut state);
-
-    interp
-        .step(cave_core::ee::interp::StepMode::Forever)
-        .expect("step failed");
+    let mut state = CpuState::new(mem.as_mut_ptr(), RegisterState::new());
+    Interpreter::<RegisterState, TestArchInstructionExecutor>::run(RunMode::Forever, &mut state)
+        .expect("error");
 
     println!("{:?}", state);
 
